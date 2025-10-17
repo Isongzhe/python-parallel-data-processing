@@ -37,7 +37,7 @@ def simulate_io_operation(duration=0.5):
 # =============================================================================
 # Demo 1: CPU-bound Task
 # =============================================================================
-def demo_cpu_bound(N):
+def demo_cpu_bound():
     print("=" * 60)
     print("Demo 1: CPU-bound - 尋找質數")
     print("=" * 60)
