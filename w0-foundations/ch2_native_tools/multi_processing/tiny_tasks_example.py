@@ -1,11 +1,11 @@
 """
-Ch2.2d - Multiprocessing Limitation: Tiny Task Overhead
+Ch2.2c - Multiprocessing Limitation: Tiny Task Overhead
 
 Demonstrates that for very small, fast tasks, the overhead of
 creating and managing processes is greater than the computation itself.
 
 操作說明：
-uv run python ch2_native_tools/tiny_tasks_example.py
+uv run python ch2_native_tools/multi_processing/tiny_tasks_example.py
 """
 import time
 from concurrent.futures import ProcessPoolExecutor

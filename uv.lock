@@ -1077,6 +1077,7 @@ name = "python-parallel-data-processing"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "bokeh" },
     { name = "dask", extra = ["complete"] },
     { name = "numpy" },
     { name = "pandas" },
@@ -1090,6 +1091,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bokeh", specifier = ">=3.8.0" },
     { name = "dask", extras = ["complete"], specifier = ">=2025.10.0" },
     { name = "numpy", specifier = ">=2.3.4" },
     { name = "pandas", specifier = ">=2.3.3" },

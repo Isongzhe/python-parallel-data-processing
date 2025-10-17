@@ -1,5 +1,5 @@
 """
-Ch2.2c - Multiprocessing Limitation: Memory Overhead (Final, Refactored)
+Ch2.2b - Multiprocessing Limitation: Memory Overhead (Final, Refactored)
 
 This version programmatically measures the total memory usage of the
 main process and all its child worker processes. The logic has been

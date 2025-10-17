@@ -1,5 +1,5 @@
 """
-Ch2.2b - Multiprocessing Limitation: Poor Load Balancing (Final Version)
+Ch2.2d - Multiprocessing Limitation: Poor Load Balancing (Final Version)
 
 This version demonstrates the load balancing problem by splitting a single,
 large prime number search into evenly-sized ranges. The worker with the

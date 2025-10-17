@@ -4,6 +4,9 @@ Ch2.1 - Threading Limitation: Race Conditions
 This version adds a `time.sleep(0)` to the "danger zone"
 to encourage the OS to switch threads, guaranteeing that
 the race condition is visible.
+
+操作說明：
+uv run python ch2_native_tools/race_condition_example.py
 """
 import time
 import sys

@@ -28,7 +28,7 @@ def time_it(title, func_to_run, *args):
 def run_multiprocessing_sum(data):
     """Wrapper to run simple_sum in a ProcessPoolExecutor."""
     with ProcessPoolExecutor(max_workers=4) as executor:
-        results = executor.map(simple_sum, [data])  # map function -> iterable each items save to results (process pool hard ?? )
+        results = executor.map(simple_sum, [data])  
         return list(results)[0]
 
 def main():
