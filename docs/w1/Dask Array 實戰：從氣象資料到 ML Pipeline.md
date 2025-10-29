@@ -1289,156 +1289,243 @@ for i, batch in enumerate(bgen):
 
 ## 3.3 PyTorch DataLoader 橋接
 
-### 目標
-
-建立一個「橋接層」，讓 PyTorch 的 `DataLoader` 能夠讀取 `xbatcher` 產生的資料。
+> 💡 **xbatcher 的兩階段設計**：
+>
+> 1. **Stage 1**：用 `BatchGenerator` 定義如何切批次
+> 2. **Stage 2**：用 `xbatcher.loaders.torch.MapDataset` 包裝成 PyTorch Dataset
+>
+> **不需要自己寫 Dataset wrapper！** xbatcher 已經提供了完整的 PyTorch 整合。
 
 ---
 
-### 實作：XarrayDataset
+### xbatcher 提供的 PyTorch 整合
+
+xbatcher 提供兩種 PyTorch Dataset 介面：
+
+| 類別 | 用途 | 特性 |
+|------|------|------|
+| **MapDataset** | 可索引存取（推薦） | 支援 `dataset[idx]`，可 shuffle |
+| **IterableDataset** | 串流存取 | 只能迭代，適合超大資料集 |
+
+---
+
+### 正確的實作方式
+
+#### 步驟 1: 分別建立特徵和標籤的 BatchGenerator
 
 ```python
-from torch.utils.data import Dataset, DataLoader
-import torch
-import numpy as np
+import xbatcher
+import xbatcher.loaders.torch
+from torch.utils.data import DataLoader
 
-class XarrayDataset(Dataset):
-    """
-    將 xbatcher 包裝成 PyTorch Dataset
+# Stage 1: 建立 BatchGenerator（分開特徵和標籤）
 
-    這是一個可重複使用的橋接層！
-    """
+# 特徵 BatchGenerator
+X_bgen = xbatcher.BatchGenerator(
+    train_ds[feature_vars],  # 只選取特徵變數
+    input_dims={'latitude': 16, 'longitude': 16},
+    input_overlap={'latitude': 4, 'longitude': 4},
+    batch_dims={'time': 32},
+    preload_batch=False  # 保持 lazy（重要！）
+)
 
-    def __init__(self, ds, feature_vars, label_var, batch_config):
-        """
-        Args:
-            ds: xarray.Dataset（輸入資料）
-            feature_vars: list of str（特徵變數名稱）
-            label_var: str（標籤變數名稱）
-            batch_config: dict（xbatcher 設定）
-        """
-        self.ds = ds
-        self.feature_vars = feature_vars
-        self.label_var = label_var
+# 標籤 BatchGenerator
+y_bgen = xbatcher.BatchGenerator(
+    train_ds['convection_flag'],  # 只選取標籤變數
+    input_dims={'latitude': 16, 'longitude': 16},
+    input_overlap={'latitude': 4, 'longitude': 4},
+    batch_dims={'time': 32},
+    preload_batch=False
+)
 
-        # 建立 BatchGenerator
-        self.bgen = xbatcher.BatchGenerator(ds, **batch_config)
-
-        # 預先生成所有 batch（只是索引，不是資料）
-        self.batches = list(self.bgen)
-
-        print(f"✅ XarrayDataset initialized with {len(self.batches)} batches")
-
-    def __len__(self):
-        return len(self.batches)
-
-    def __getitem__(self, idx):
-        """
-        取得第 idx 個 batch（這時才真正讀取資料）
-        """
-        # 取得 batch
-        batch = self.batches[idx]
-
-        # 轉成 NumPy（這時會 compute）
-        X = batch[self.feature_vars].to_array(dim='variable').values
-        y = batch[self.label_var].values
-
-        # 處理 NaN（如果有）
-        X = np.nan_to_num(X, nan=0.0)
-        y = np.nan_to_num(y, nan=0)
-
-        # 轉成 Torch Tensor
-        X_tensor = torch.FloatTensor(X)
-        y_tensor = torch.LongTensor(y)
-
-        return X_tensor, y_tensor
+print(f"✅ Created {len(X_bgen)} batches")
 ```
 
 ---
 
-### 建立 DataLoader
+#### 步驟 2: 使用 xbatcher.loaders.torch.MapDataset
 
 ```python
-# 定義 batch 設定
-batch_config = {
-    'input_dims': {'latitude': 16, 'longitude': 16},
-    'input_overlap': {'latitude': 4, 'longitude': 4},
-    'batch_dims': {'time': 32}
-}
-
-# 建立訓練 Dataset
-train_dataset = XarrayDataset(
-    train_ds,
-    feature_vars=feature_vars,
-    label_var='convection_flag',
-    batch_config=batch_config
+# Stage 2: 包裝成 PyTorch Dataset
+dataset = xbatcher.loaders.torch.MapDataset(
+    X_bgen,  # 特徵 generator
+    y_bgen   # 標籤 generator
 )
 
-# 建立 DataLoader
+print(f"✅ MapDataset created with {len(dataset)} samples")
+
+# 測試單一樣本
+X_sample, y_sample = dataset[0]
+print(f"X shape: {X_sample.shape}, dtype: {X_sample.dtype}")
+print(f"y shape: {y_sample.shape}, dtype: {y_sample.dtype}")
+```
+
+**輸出範例**：
+```
+✅ Created 1250 batches
+✅ MapDataset created with 1250 samples
+X shape: torch.Size([4, 32, 16, 16]), dtype: torch.float32
+y shape: torch.Size([32, 16, 16]), dtype: torch.int64
+```
+
+**重點**：
+- `X_sample` 已經是 `torch.Tensor`（不是 xarray！）
+- 多變數自動合併成第一個維度（4 個變數）
+- 完全自動，不需要手動轉換
+
+---
+
+#### 步驟 3: 建立 DataLoader
+
+```python
+# 建立 PyTorch DataLoader
 train_loader = DataLoader(
-    train_dataset,
-    batch_size=4,        # 一次讀 4 個 xarray batch
-    shuffle=True,        # 訓練時打亂
-    num_workers=2,       # 平行讀取（重要！）
-    pin_memory=True,     # GPU 優化
-    persistent_workers=True  # 保持 workers 存活（加速）
+    dataset,
+    batch_size=None,  # ⚠️ 重要！xbatcher 已定義 batch size
+    shuffle=True,
+    num_workers=4,
+    persistent_workers=True,
+    prefetch_factor=3,
+    multiprocessing_context='forkserver'  # 推薦用於 xarray/dask
 )
 
-print(f"✅ DataLoader created with {len(train_loader)} batches")
+print(f"✅ DataLoader ready for training")
 
-# 測試一下
-for X, y in train_loader:
-    print(f"X: {X.shape}, dtype: {X.dtype}, device: {X.device}")
-    print(f"y: {y.shape}, dtype: {y.dtype}, device: {y.device}")
+# 測試迭代
+for X_batch, y_batch in train_loader:
+    print(f"Batch X: {X_batch.shape}")
+    print(f"Batch y: {y_batch.shape}")
     break
 ```
 
 **輸出範例**：
 ```
-✅ XarrayDataset initialized with 1250 batches
-✅ DataLoader created with 313 batches
-X: torch.Size([4, 4, 32, 16, 16]), dtype: torch.float32, device: cpu
-y: torch.Size([4, 32, 16, 16]), dtype: torch.int64, device: cpu
+✅ DataLoader ready for training
+Batch X: torch.Size([4, 32, 16, 16])  # (vars, time, lat, lon)
+Batch y: torch.Size([32, 16, 16])      # (time, lat, lon)
 ```
 
 ---
 
 ### 重要參數說明
 
+#### `batch_size=None`
+
+```python
+# ⚠️ 關鍵差異！
+
+# 錯誤做法：
+train_loader = DataLoader(dataset, batch_size=4)
+# 這會再次批次化，導致形狀錯誤
+
+# 正確做法：
+train_loader = DataLoader(dataset, batch_size=None)
+# xbatcher 的 BatchGenerator 已經定義了 batch size
+```
+
+#### `preload_batch`
+
+```python
+# BatchGenerator 參數
+
+# preload_batch=False（推薦）
+# - 保持 lazy evaluation
+# - 節省記憶體
+# - 讓 Dask 控制計算時機
+
+# preload_batch=True
+# - 提前載入整個 batch
+# - 可能導致 OOM
+```
+
+#### `multiprocessing_context`
+
+```python
+# multiprocessing_context='forkserver'（推薦用於 xarray/dask）
+# - 避免 Dask client 的 pickle 問題
+# - 更安全的 worker 建立方式
+
+# 其他選項：
+# - 'fork'（Linux 預設，但可能有問題）
+# - 'spawn'（Windows 預設）
+```
+
 #### `num_workers`
 
 ```python
-# num_workers=0：主程序讀取（慢）
-# num_workers=2：開 2 個子程序平行讀取（快）
-# num_workers=4：開 4 個子程序（更快，但記憶體需求高）
+# num_workers=4（推薦）
+# - 平行讀取 4 個 batch
+# - 配合 prefetch_factor 可以預載資料
 
-# 推薦設定：
-# - CPU 充足：num_workers = CPU cores / 2
-# - 記憶體有限：num_workers = 2
-# - Debug 時：num_workers = 0（避免多程序錯誤難追蹤）
+# 注意：
+# - 太多 workers 會佔用記憶體
+# - 配合 persistent_workers=True 加速
 ```
 
-#### `pin_memory`
+#### `prefetch_factor`
 
 ```python
-# pin_memory=True（推薦，如果有 GPU）
-# - 將資料固定在 CPU 記憶體中
-# - 加速 CPU → GPU 資料傳輸
-
-# pin_memory=False
-# - 不使用 GPU 時，或記憶體不足時
+# prefetch_factor=3
+# - 每個 worker 預載 3 個 batch
+# - 減少 GPU 等待時間
+# - 權衡：記憶體 vs 速度
 ```
 
-#### `persistent_workers`
+---
+
+### 完整範例：訓練與驗證
 
 ```python
-# persistent_workers=True（推薦）
-# - 保持 workers 存活，不用每個 epoch 重啟
-# - 加速訓練，特別是多 epoch 時
+# 建立訓練 DataLoader
+X_train_bgen = xbatcher.BatchGenerator(
+    train_ds[feature_vars],
+    input_dims={'latitude': 16, 'longitude': 16},
+    batch_dims={'time': 32},
+    preload_batch=False
+)
+y_train_bgen = xbatcher.BatchGenerator(
+    train_ds['convection_flag'],
+    input_dims={'latitude': 16, 'longitude': 16},
+    batch_dims={'time': 32},
+    preload_batch=False
+)
 
-# persistent_workers=False
-# - 每個 epoch 結束後關閉 workers
-# - 節省記憶體，但每次重啟有開銷
+train_dataset = xbatcher.loaders.torch.MapDataset(X_train_bgen, y_train_bgen)
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=None,
+    shuffle=True,
+    num_workers=4,
+    persistent_workers=True,
+    multiprocessing_context='forkserver'
+)
+
+# 建立驗證 DataLoader（不 shuffle）
+X_valid_bgen = xbatcher.BatchGenerator(
+    valid_ds[feature_vars],
+    input_dims={'latitude': 16, 'longitude': 16},
+    batch_dims={'time': 32},
+    preload_batch=False
+)
+y_valid_bgen = xbatcher.BatchGenerator(
+    valid_ds['convection_flag'],
+    input_dims={'latitude': 16, 'longitude': 16},
+    batch_dims={'time': 32},
+    preload_batch=False
+)
+
+valid_dataset = xbatcher.loaders.torch.MapDataset(X_valid_bgen, y_valid_bgen)
+valid_loader = DataLoader(
+    valid_dataset,
+    batch_size=None,
+    shuffle=False,  # 驗證時不打亂
+    num_workers=4,
+    persistent_workers=True,
+    multiprocessing_context='forkserver'
+)
+
+print(f"✅ Train loader: {len(train_loader)} batches")
+print(f"✅ Valid loader: {len(valid_loader)} batches")
 ```
 
 ---
@@ -1450,16 +1537,34 @@ y: torch.Size([4, 32, 16, 16]), dtype: torch.int64, device: cpu
 ```python
 # 迭代幾個 batch，觀察 Dashboard
 for i, (X, y) in enumerate(train_loader):
-    print(f"Batch {i}: X={X.shape}")
+    print(f"Batch {i}: X={X.shape}, y={y.shape}")
 
     if i >= 5:
         break
 ```
 
 **觀察重點**：
-- **Task Stream**：看到資料讀取任務（藍色）
-- **Workers**：`num_workers=2` 時，會看到多個 workers 同時工作
-- **Memory**：記憶體使用會波動（讀取 → 處理 → 釋放）
+- **Task Stream**：看到 Dask 的資料讀取任務（藍色）
+- **Workers**：`num_workers=4` 時，會看到多個 workers 平行工作
+- **Memory**：記憶體使用會波動（lazy load → compute → 釋放）
+- **Prefetch**：`prefetch_factor=3` 會讓 worker 提前載入資料
+
+---
+
+### 為什麼這樣做更好？
+
+**舊做法（手寫 Dataset）的問題**：
+- ❌ 需要手動處理 xarray → NumPy → Tensor 轉換
+- ❌ 需要手動處理 NaN 值
+- ❌ 需要手動處理多變數合併
+- ❌ 容易出錯，難以維護
+
+**xbatcher.loaders.torch 的優勢**：
+- ✅ 自動處理所有轉換（xarray → Tensor）
+- ✅ 自動合併多變數成第一個維度
+- ✅ 完整支援 Dask lazy evaluation
+- ✅ 經過充分測試，穩定可靠
+- ✅ 程式碼簡潔，易於維護
 
 ---
 
@@ -2018,13 +2123,15 @@ result_eager = result_lazy.compute()
 ### ML Pipeline 最佳實踐
 
 ```python
-# 資料流向
+# 正確的資料流向（使用 xbatcher.loaders.torch）
 Zarr files
   ↓ xr.open_zarr()
 Xarray Dataset
-  ↓ xbatcher.BatchGenerator()
+  ↓ xbatcher.BatchGenerator()  [分開建立 X_bgen 和 y_bgen]
 Lazy Batches
-  ↓ torch.utils.data.Dataset
+  ↓ xbatcher.loaders.torch.MapDataset(X_bgen, y_bgen)
+PyTorch-compatible Dataset
+  ↓ torch.utils.data.DataLoader(batch_size=None)
 PyTorch DataLoader
   ↓ model.forward()
 Predictions (Tensor)
@@ -2033,6 +2140,12 @@ Xarray DataArray with coords
   ↓ xskillscore
 Spatial validation metrics
 ```
+
+**關鍵點**：
+- ✅ 使用 `xbatcher.loaders.torch.MapDataset`（不要自己寫 Dataset）
+- ✅ DataLoader 的 `batch_size=None`（xbatcher 已定義）
+- ✅ `preload_batch=False`（保持 lazy）
+- ✅ `multiprocessing_context='forkserver'`（避免 pickle 問題）
 
 ---
 
@@ -2111,29 +2224,31 @@ RuntimeError: DataLoader worker (pid 12345) is killed by signal: Killed.
 
 **可能原因**：
 1. 記憶體不足（workers 複製資料）
-2. Dask client 不能被 pickle
+2. Dask client 的 pickle 問題
+3. 使用了錯誤的 `multiprocessing_context`
 
 **解決方法**：
+
 ```python
-# 方法 1: 減少 workers
-num_workers = 0
+# ✅ 推薦做法：使用 'forkserver' context
+train_loader = DataLoader(
+    dataset,
+    batch_size=None,
+    num_workers=4,
+    persistent_workers=True,
+    multiprocessing_context='forkserver'  # 關鍵！
+)
 
-# 方法 2: 在 worker 中才建立 client
-class XarrayDataset(Dataset):
-    def __init__(self, ...):
-        # 不要在這裡建立 client
-        pass
+# 如果仍有問題，檢查：
+# 1. 是否使用 xbatcher.loaders.torch.MapDataset（而非自己寫的 Dataset）
+# 2. 是否設定 preload_batch=False
+# 3. 是否設定 batch_size=None
+```
 
-    def __getitem__(self, idx):
-        # 在這裡建立（如果需要）
-        pass
-
-# 方法 3: 使用 worker_init_fn
-def worker_init_fn(worker_id):
-    # 在每個 worker 中初始化
-    pass
-
-DataLoader(..., worker_init_fn=worker_init_fn)
+**Debug 時的臨時方案**：
+```python
+# 先用 num_workers=0 確認邏輯正確
+train_loader = DataLoader(dataset, batch_size=None, num_workers=0)
 ```
 
 ---
