@@ -1,0 +1,35 @@
+sources:
+  era5_2019:
+    description: ERA5 reanalysis data for 2019 (10N-40N, 100E-140E)
+    driver: zarr
+    args:
+      urlpath: '/home/sungche/NAS/dataset/era5/era5_2019_10N40N_100E140E.zarr'
+      consolidated: true
+
+  era5_2020:
+    description: ERA5 reanalysis data for 2020 (10N-40N, 100E-140E)
+    driver: zarr
+    args:
+      urlpath: '/home/sungche/NAS/dataset/era5/era5_2020_10N40N_100E140E.zarr'
+      consolidated: true
+
+  era5_2021:
+    description: ERA5 reanalysis data for 2021 (10N-40N, 100E-140E)
+    driver: zarr
+    args:
+      urlpath: '/home/sungche/NAS/dataset/era5/era5_2021_10N40N_100E140E.zarr'
+      consolidated: true
+
+  era5_2022:
+    description: ERA5 reanalysis data for 2022 (10N-40N, 100E-140E)
+    driver: zarr
+    args:
+      urlpath: '/home/sungche/NAS/dataset/era5/era5_2022_10N40N_100E140E.zarr'
+      consolidated: true
+
+  era5_2023:
+    description: ERA5 reanalysis data for 2023 (10N-40N, 100E-140E)
+    driver: zarr
+    args:
+      urlpath: '/home/sungche/NAS/dataset/era5/era5_2023_10N40N_100E140E.zarr'
+      consolidated: true
