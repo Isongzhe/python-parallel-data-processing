@@ -12,13 +12,13 @@ dependencies = [
     "matplotlib>=3.10.7",
     "numpy>=2.3.4",
     "pandas>=2.3.3",
+    "rechunker>=0.5.4",
     "scikit-learn>=1.6.1",
     "torch>=2.6.0",
     "torchvision>=0.21.0",
     "typer>=0.19.2",
     "xarray>=2025.10.1",
     "xbatcher>=0.4.0",
-    "xskillscore>=0.0.28",
     "zarr<3.0",
 ]
 

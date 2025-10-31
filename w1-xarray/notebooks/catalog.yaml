@@ -1,0 +1,36 @@
+sources:
+  # === 示範用：原始 chunking（有問題） ===
+  # 保留原始錯誤 chunking，用於課程中展示問題
+  # 讀取這個會看到大量黃色 get-items 在 Dashboard
+  era5_2019_raw:
+    description: ERA5 2019 RAW - with problematic chunking (1, 121, 161) for demonstration
+    driver: intake_xarray.xzarr.ZarrSource
+    args:
+      urlpath: '/home/sungche/NAS/dataset/era5/era5_2019_10N40N_100E140E.zarr'
+      consolidated: false  # consolidated=False: zarr 沒有 .zmetadata
+
+  # === 優化版本：透過 catalog rechunk ===
+  # 這個版本在讀取時會 rechunk，展示暫時解決方案
+  era5_2019_chunked:
+    description: ERA5 reanalysis data for 2019 (10N-40N, 100E-140E) with optimized chunking
+    driver: intake_xarray.xzarr.ZarrSource
+    args:
+      urlpath: '/home/sungche/NAS/dataset/era5_rechunked/era5_2019_10N40N_100E140E_rechunked.zarr'
+      consolidated: false
+
+
+  # 所有年份合併 (2019-2023)
+  # 注意：這個會在讀取時 concat，適合需要多年資料的分析
+  era5_all_years:
+    description: ERA5 reanalysis data for 2019-2023 (10N-40N, 100E-140E) - concatenated
+    driver: intake_xarray.xzarr.ZarrSource
+    args:
+      urlpath:
+        - '/home/sungche/NAS/dataset/era5_rechunked/era5_2019_10N40N_100E140E_rechunked.zarr'
+        - '/home/sungche/NAS/dataset/era5_rechunked/era5_2020_10N40N_100E140E_rechunked.zarr'
+        - '/home/sungche/NAS/dataset/era5_rechunked/era5_2021_10N40N_100E140E_rechunked.zarr'
+        - '/home/sungche/NAS/dataset/era5_rechunked/era5_2022_10N40N_100E140E_rechunked.zarr'
+        - '/home/sungche/NAS/dataset/era5_rechunked/era5_2023_10N40N_100E140E_rechunked.zarr'
+      concat_dim: 'time'
+      combine: 'nested'
+      consolidated: false
