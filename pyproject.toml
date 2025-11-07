@@ -19,6 +19,7 @@ dependencies = [
     "typer>=0.19.2",
     "xarray>=2025.10.1",
     "xbatcher>=0.4.0",
+    "xskillscore>=0.0.27",
     "zarr<3.0",
 ]
 
